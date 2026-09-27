@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+websockets
+requests
+google-api-python-client
+apscheduler
