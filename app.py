@@ -7,13 +7,19 @@ from fastapi.responses import HTMLResponse
 
 app = FastAPI()
 
+# Render-এর Environment Variable থেকে API Key নিবে
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", "")
 
 active_connections = set()
-viral_insights = {
-    "last_updated": datetime.datetime.now().strftime("%Y-%m-%d %I:%M:%S %p"),
-    "breakout_videos": [],
-    "recommendation": "নতুন চ্যানেলে এখন অ্যানিমেশন, শর্ট স্টোরি ও রিলস ফরম্যাটে ৩ মিনিটের নিচের কনটেন্টে গ্রোথ রেট সবচেয়ে বেশি।"
+
+# ক্যাটাগরি আইডি ম্যাপিং
+CATEGORIES = {
+    "all": {"name": "সব ক্যাটাগরি", "id": None},
+    "animation": {"name": "কার্টুন ও অ্যানিমেশন", "id": "1"},
+    "gaming": {"name": "গেমিং", "id": "20"},
+    "comedy": {"name": "কমেডি ও রোস্টিং", "id": "23"},
+    "tech": {"name": "টেক ও গ্যাজেট", "id": "28"},
+    "shorts": {"name": "ভাইরাল শর্টস", "id": "24"}
 }
 
 HTML_TEMPLATE = """<!DOCTYPE html>
@@ -21,72 +27,80 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>YouTube Viral Trend & Niche Radar</title>
+  <title>EMON SMART RADAR | Viral YouTube Engine</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@600;700&family=Hind+Siliguri:wght@500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Hind+Siliguri:wght@500;600;700&family=Rajdhani:wght@600;700&display=swap');
     * { font-family: 'Hind Siliguri', sans-serif; }
+    .font-orbitron { font-family: 'Orbitron', sans-serif; }
     .font-mono { font-family: 'Rajdhani', monospace; }
   </style>
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen p-3 sm:p-6 pb-20">
+<body class="bg-slate-950 text-slate-100 min-h-screen p-3 sm:p-6 pb-24">
 
   <div class="max-w-4xl mx-auto space-y-4">
 
-    <!-- Header -->
-    <header class="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-slate-900 border border-slate-800 p-4 rounded-2xl gap-3 shadow-lg">
+    <!-- Top Developer Branding Header -->
+    <header class="bg-slate-900 border border-cyan-500/30 p-4 rounded-2xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 shadow-xl">
       <div>
-        <h1 class="text-lg sm:text-xl font-bold text-red-500 flex items-center gap-2">
-          <i class="fa-brands fa-youtube"></i> YouTube Viral Niche Engine
+        <h1 class="text-lg sm:text-xl font-black text-cyan-400 font-orbitron tracking-wider flex items-center gap-2">
+          EMON<span class="text-amber-400">|VIRAL RADAR</span>
         </h1>
-        <p class="text-xs text-slate-400">রিয়েল-টাইম ট্রেন্ড অ্যানালাইসিস ও নতুন চ্যানেলের ভাইরাল প্রেডিকশন</p>
+        <p class="text-[11px] text-gray-300 font-semibold">
+          Developer & Creator: <span class="text-cyan-300 font-bold">ইমন ইসলাম (Emon Khan)</span>
+        </p>
       </div>
       <div id="connectionStatus" class="flex items-center gap-2 text-xs font-mono bg-emerald-950/60 text-emerald-400 border border-emerald-500/30 px-3 py-1.5 rounded-xl">
         <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
-        <span>WebSocket Live</span>
+        <span>WebSocket Live Radar</span>
       </div>
     </header>
 
-    <!-- Advice Card -->
+    <!-- Strategy Advice Box -->
     <div class="bg-gradient-to-r from-red-950/40 via-slate-900 to-indigo-950/40 border border-red-500/30 p-4 rounded-2xl shadow-md">
       <div class="flex items-center gap-2 mb-1">
         <i class="fa-solid fa-lightbulb text-amber-400"></i>
-        <h3 class="text-sm font-bold text-amber-300">নতুন চ্যানেলে ভাইরাল হওয়ার স্ট্র্যাটেজি পরামর্শ:</h3>
+        <h3 class="text-xs sm:text-sm font-bold text-amber-300">নতুন চ্যানেলে যে ধরনের ভিডিও সবচেয়ে দ্রুত ভাইরাল হচ্ছে:</h3>
       </div>
-      <p id="recText" class="text-xs text-slate-300 leading-relaxed">ডেটা বিশ্লেষণ করা হচ্ছে...</p>
-      <div class="text-[11px] text-slate-500 mt-2 font-mono">সর্বশেষ আপডেট: <span id="lastUpdated">--</span></div>
+      <p id="recText" class="text-xs text-slate-300 leading-relaxed">অ্যালগরিদম বিশ্লেষণ চলছে...</p>
+      <div class="text-[11px] text-slate-500 mt-2 font-mono">আপডেট সময়: <span id="lastUpdated">--</span></div>
     </div>
 
-    <!-- Growth Radar Table -->
-    <div class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
-      <div class="p-3.5 border-b border-slate-800">
+    <!-- Category Selector Controls -->
+    <div class="bg-slate-900 border border-slate-800 p-3 rounded-2xl flex flex-wrap items-center justify-between gap-2">
+      <div class="flex items-center gap-2 text-xs font-bold text-slate-300">
+        <i class="fa-solid fa-filter text-cyan-400"></i> ক্যাটাগরি বাছাই করুন:
+      </div>
+      <select id="categoryFilter" onchange="filterCategory(this.value)" class="bg-slate-950 border border-slate-700 text-cyan-300 text-xs rounded-xl p-2 font-bold focus:outline-none focus:border-cyan-400">
+        <option value="all">🔥 সব ক্যাটাগরি (All Trends)</option>
+        <option value="animation">🎬 কার্টুন ও অ্যানিমেশন</option>
+        <option value="comedy">😂 রোস্টিং ও কমেডি</option>
+        <option value="gaming">🎮 গেমিং ও লাইভস্ট্রিম</option>
+        <option value="tech">📱 টেক ও গ্যাজেট</option>
+        <option value="shorts">⚡ ভাইরাল শর্টস</option>
+      </select>
+    </div>
+
+    <!-- Live Videos Container With Integrated Players -->
+    <div class="space-y-4">
+      <div class="flex justify-between items-center px-1">
         <h2 class="text-sm font-bold flex items-center gap-2 text-cyan-300">
-          <i class="fa-solid fa-chart-line text-cyan-400"></i> সর্বাধিক গতির ব্রেকআউট ভিডিও (Top Growth Radar)
+          <i class="fa-solid fa-fire text-amber-400"></i> সর্বাধিক সম্ভাব্য ভাইরাল ভিডিও (লাইভ প্লেয়ার)
         </h2>
+        <span id="videoCount" class="text-xs font-mono text-slate-400">লোড হচ্ছে...</span>
       </div>
 
-      <div class="overflow-x-auto">
-        <table class="w-full text-left text-xs">
-          <thead class="bg-slate-950/80 uppercase text-slate-400 border-b border-slate-800 font-mono">
-            <tr>
-              <th class="p-3">ভিডিও টাইটেল</th>
-              <th class="p-3">আপলোড</th>
-              <th class="p-3 text-right">গতি (Velocity)</th>
-              <th class="p-3 text-right">এঙ্গেজমেন্ট</th>
-              <th class="p-3 text-center">স্কোর</th>
-            </tr>
-          </thead>
-          <tbody id="trendsBody" class="divide-y divide-slate-800/60 font-mono">
-            <tr><td colspan="5" class="p-4 text-center text-slate-500">ডেটা লোড হচ্ছে...</td></tr>
-          </tbody>
-        </table>
+      <div id="videoGrid" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <!-- Dynamic Video Cards Will Render Here -->
+        <div class="p-6 text-center text-slate-500 col-span-2">ভিডিও লোড হচ্ছে...</div>
       </div>
     </div>
 
   </div>
 
   <script>
+    let allVideosData = [];
     const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const wsUrl = `${wsProtocol}//${window.location.host}/ws/trends`;
     let socket = new WebSocket(wsUrl);
@@ -95,33 +109,77 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       const data = JSON.parse(event.data);
       document.getElementById("lastUpdated").innerText = data.last_updated || "Live";
       document.getElementById("recText").innerText = data.recommendation || "";
-
-      if(data.breakout_videos && data.breakout_videos.length > 0) {
-        const tbody = document.getElementById("trendsBody");
-        tbody.innerHTML = "";
-
-        data.breakout_videos.forEach(v => {
-          const tr = document.createElement("tr");
-          tr.className = "hover:bg-slate-800/40 transition";
-          tr.innerHTML = `
-            <td class="p-3 font-medium text-slate-200 max-w-xs truncate font-sans">
-              <a href="${v.url}" target="_blank" class="hover:text-cyan-400 flex items-center gap-1.5">
-                <i class="fa-solid fa-arrow-up-right-from-square text-[10px] text-slate-500"></i> ${v.title}
-              </a>
-            </td>
-            <td class="p-3 text-slate-400">${v.hours_live} ঘণ্টা আগে</td>
-            <td class="p-3 text-right font-bold text-emerald-400">+${v.velocity.toLocaleString()} /hr</td>
-            <td class="p-3 text-right text-cyan-300">${v.engagement}%</td>
-            <td class="p-3 text-center">
-              <span class="bg-amber-500/10 border border-amber-500/30 text-amber-400 px-2 py-0.5 rounded font-bold">
-                ${v.viral_score}
-              </span>
-            </td>
-          `;
-          tbody.appendChild(tr);
-        });
-      }
+      allVideosData = data.breakout_videos || [];
+      renderVideos(allVideosData);
     };
+
+    function renderVideos(videos) {
+      const container = document.getElementById("videoGrid");
+      document.getElementById("videoCount").innerText = `${videos.length}টি ব্রেকআউট ভিডিও পাওয়া গেছে`;
+      container.innerHTML = "";
+
+      if(videos.length === 0) {
+        container.innerHTML = `<div class="p-6 text-center text-slate-500 col-span-2">কোনো ভিডিও পাওয়া যায়নি!</div>`;
+        return;
+      }
+
+      videos.forEach(v => {
+        const card = document.createElement("div");
+        card.className = "bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-lg flex flex-col justify-between";
+        card.innerHTML = `
+          <!-- Embedded YouTube Video Player -->
+          <div class="relative w-full aspect-video bg-black">
+            <iframe 
+              class="w-full h-full" 
+              src="https://www.youtube.com/embed/${v.id}?enablejsapi=1" 
+              title="${v.title}" 
+              frameborder="0" 
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+              allowfullscreen>
+            </iframe>
+          </div>
+
+          <!-- Video Details & Metrics -->
+          <div class="p-3.5 space-y-2.5">
+            <h3 class="text-xs font-bold text-slate-200 line-clamp-2" title="${v.title}">
+              ${v.title}
+            </h3>
+
+            <div class="grid grid-cols-3 gap-1.5 text-center text-[10px] font-mono">
+              <div class="bg-slate-950 p-1.5 rounded-lg border border-slate-800">
+                <span class="text-slate-400 block">আপলোড</span>
+                <span class="font-bold text-white">${v.hours_live} ঘণ্টা আগে</span>
+              </div>
+              <div class="bg-slate-950 p-1.5 rounded-lg border border-slate-800">
+                <span class="text-slate-400 block">গতি (Velocity)</span>
+                <span class="font-bold text-emerald-400">+${v.velocity.toLocaleString()}/hr</span>
+              </div>
+              <div class="bg-slate-950 p-1.5 rounded-lg border border-amber-500/30 bg-amber-500/5">
+                <span class="text-amber-300 block">ভাইরাল স্কোর</span>
+                <span class="font-black text-amber-400 text-xs">${v.viral_score}</span>
+              </div>
+            </div>
+
+            <div class="flex justify-between items-center pt-1 border-t border-slate-800/80 text-[11px]">
+              <span class="text-cyan-400 font-bold bg-cyan-950/60 px-2 py-0.5 rounded border border-cyan-800">${v.category_name}</span>
+              <a href="${v.url}" target="_blank" class="text-slate-400 hover:text-white flex items-center gap-1 font-semibold">
+                ইউটিউবে দেখুন <i class="fa-solid fa-arrow-up-right-from-square text-[9px]"></i>
+              </a>
+            </div>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    function filterCategory(catKey) {
+      if(catKey === "all") {
+        renderVideos(allVideosData);
+      } else {
+        const filtered = allVideosData.filter(v => v.category_key === catKey);
+        renderVideos(filtered);
+      }
+    }
 
     socket.onerror = function() {
       document.getElementById("connectionStatus").innerHTML = `<span class="w-2 h-2 rounded-full bg-rose-500"></span><span>Offline</span>`;
@@ -132,42 +190,65 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 </html>
 """
 
-def analyze_youtube_trends():
-    global viral_insights
+def fetch_youtube_data():
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %I:%M:%S %p")
     
+    # API Key না থাকলে বিভিন্ন ক্যাটাগরির রিয়েল ডেমো ভিডিও যাতে লাইভ চলে
     if not YOUTUBE_API_KEY:
-        viral_insights = {
+        return {
             "last_updated": now_str,
             "breakout_videos": [
                 {
-                    "title": "Viral 3D Animation Breakdown & Tips",
-                    "hours_live": 4.5,
-                    "velocity": 18450,
-                    "engagement": 8.4,
-                    "viral_score": 92,
-                    "url": "https://www.youtube.com"
+                    "id": "kJQP7kiw5Fk",
+                    "title": "Despacito - Global Record Breaking Animation Concept",
+                    "hours_live": 3.2,
+                    "velocity": 24500,
+                    "viral_score": 98,
+                    "category_key": "animation",
+                    "category_name": "কার্টুন ও অ্যানিমেশন",
+                    "url": "https://www.youtube.com/watch?v=kJQP7kiw5Fk"
                 },
                 {
-                    "title": "Shorts Storytelling Algorithm Secrets",
-                    "hours_live": 8.2,
-                    "velocity": 9200,
-                    "engagement": 7.1,
-                    "viral_score": 85,
-                    "url": "https://www.youtube.com"
+                    "id": "JGwWNGJdvx8",
+                    "title": "Shape of You - Short Story Audio Beat Breakdown",
+                    "hours_live": 5.4,
+                    "velocity": 19200,
+                    "viral_score": 94,
+                    "category_key": "comedy",
+                    "category_name": "রোস্টিং ও কমেডি",
+                    "url": "https://www.youtube.com/watch?v=JGwWNGJdvx8"
+                },
+                {
+                    "id": "fJ9rUzIMcZQ",
+                    "title": "Queen - Live Aid Analysis: High Engagement Dynamics",
+                    "hours_live": 7.1,
+                    "velocity": 12800,
+                    "viral_score": 89,
+                    "category_key": "tech",
+                    "category_name": "টেক ও গ্যাজেট",
+                    "url": "https://www.youtube.com/watch?v=fJ9rUzIMcZQ"
+                },
+                {
+                    "id": "9bZkp7q19f0",
+                    "title": "PSY - Viral Storytelling Loop Secret For New Creators",
+                    "hours_live": 9.0,
+                    "velocity": 9800,
+                    "viral_score": 84,
+                    "category_key": "shorts",
+                    "category_name": "ভাইরাল শর্টস",
+                    "url": "https://www.youtube.com/watch?v=9bZkp7q19f0"
                 }
             ],
-            "recommendation": "নতুন চ্যানেলে এখন ৩ মিনিটের নিচে কার্টুন অ্যানিমেশন ও স্টোরি শর্টস তৈরি করলে ভাইরাল হওয়ার গতি সবচেয়ে বেশি।"
+            "recommendation": "নতুন চ্যানেলে এখন কার্টুন/অ্যানিমেশন ও শর্ট স্টোরিতে প্রতি ঘণ্টায় ভিউ বৃদ্ধির গতি (Velocity) সবচেয়ে বেশি।"
         }
-        return
 
+    # API Key থাকলে ইউটিউব থেকে সরাসরি ফেচ করবে
     try:
-        url = f"https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&chart=mostPopular&regionCode=US&maxResults=15&key={YOUTUBE_API_KEY}"
-        res = requests.get(url, timeout=10).json()
-        
+        url = f"https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&chart=mostPopular&regionCode=US&maxResults=30&key={YOUTUBE_API_KEY}"
+        res = requests.get(url, timeout=12).json()
         analyzed = []
         now = datetime.datetime.now(datetime.timezone.utc)
-        
+
         for item in res.get("items", []):
             pub_date = datetime.datetime.fromisoformat(item["snippet"]["publishedAt"].replace("Z", "+00:00"))
             hours_live = max((now - pub_date).total_seconds() / 3600, 0.5)
@@ -180,26 +261,25 @@ def analyze_youtube_trends():
             score = round((velocity * 0.6) + (engagement * 1000 * 0.4))
 
             analyzed.append({
+                "id": item["id"],
                 "title": item["snippet"]["title"],
                 "hours_live": round(hours_live, 1),
                 "velocity": round(velocity),
-                "engagement": round(engagement, 2),
                 "viral_score": score,
+                "category_key": "animation" if item["snippet"]["categoryId"] == "1" else "comedy",
+                "category_name": "ইউটিউব ট্রেন্ডিং",
                 "url": f"https://www.youtube.com/watch?v={item['id']}"
             })
-        
+
         analyzed.sort(key=lambda x: x["viral_score"], reverse=True)
-        viral_insights = {
+        return {
             "last_updated": now_str,
-            "breakout_videos": analyzed[:10],
-            "recommendation": "অ্যালগরিদম এখন হাই-রিটেনশন শর্টস ভিডিওগুলোকে বেশি পুশ করছে।"
+            "breakout_videos": analyzed,
+            "recommendation": "অ্যালগরিদম এখন হাই-রিটেনশন শর্ট স্টোরি ভিডিওগুলোকে বেশি রিকমেন্ড করছে।"
         }
     except Exception as e:
-        print(f"Error fetching: {e}")
-
-@app.on_event("startup")
-async def startup_event():
-    analyze_youtube_trends()
+        print(f"Fetch Error: {e}")
+        return fetch_youtube_data()
 
 @app.get("/")
 async def get_index():
@@ -210,10 +290,11 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     active_connections.add(websocket)
     try:
-        await websocket.send_json(viral_insights)
+        data = fetch_youtube_data()
+        await websocket.send_json(data)
         while True:
-            await asyncio.sleep(10)
-            await websocket.send_json(viral_insights)
+            await asyncio.sleep(15)
+            await websocket.send_json(fetch_youtube_data())
     except WebSocketDisconnect:
         active_connections.remove(websocket)
 
